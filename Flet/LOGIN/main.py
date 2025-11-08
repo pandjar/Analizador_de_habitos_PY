@@ -38,7 +38,8 @@ class DatabaseManager:
                 Titulo TEXT,
                 FechaLimite TEXT,
                 Prioridad INTEGER DEFAULT 1,
-                Completado INTEGER DEFAULT 0
+                Completado INTEGER DEFAULT 0,
+                FechaCreacion TEXT
             )
         """)
         conn.commit()
@@ -101,10 +102,22 @@ class DatabaseManager:
     def agregar_habito(self, usuarioid, titulo, fecha_limite, prioridad):
         conn = sqlite3.connect(self.habitos_db_path)
         cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO Habitos (UsuarioID, Titulo, FechaLimite, Prioridad) VALUES (?, ?, ?, ?)",
-            (usuarioid, titulo, fecha_limite, prioridad)
-        )
+        # Verificar si la columna FechaCreacion existe
+        cursor.execute("PRAGMA table_info(Habitos)")
+        columnas = [col[1] for col in cursor.fetchall()]
+        
+        if "FechaCreacion" in columnas:
+            fecha_creacion = datetime.now().strftime("%d/%m/%Y")
+            cursor.execute(
+                "INSERT INTO Habitos (UsuarioID, Titulo, FechaLimite, Prioridad, FechaCreacion) VALUES (?, ?, ?, ?, ?)",
+                (usuarioid, titulo, fecha_limite, prioridad, fecha_creacion)
+            )
+        else:
+            # Si no existe la columna, insertar sin ella
+            cursor.execute(
+                "INSERT INTO Habitos (UsuarioID, Titulo, FechaLimite, Prioridad) VALUES (?, ?, ?, ?)",
+                (usuarioid, titulo, fecha_limite, prioridad)
+            )
         conn.commit()
         conn.close()
 
@@ -138,6 +151,29 @@ class DatabaseManager:
         conn.close()
         return habitos
 
+    def obtener_habitos_vencidos(self, usuarioid):
+        "Obtiene hábitos incompletos que ya pasaron su fecha límite"
+        conn = sqlite3.connect(self.habitos_db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT ID, Titulo, FechaLimite FROM Habitos WHERE UsuarioID=? AND Completado=0",
+            (usuarioid,)
+        )
+        habitos = cursor.fetchall()
+        conn.close()
+        
+        hoy = datetime.now()
+        vencidos = []
+        for hab_id, titulo, fecha_limite in habitos:
+            try:
+                fecha_obj = datetime.strptime(fecha_limite, "%d/%m/%Y")
+                if fecha_obj.date() < hoy.date():
+                    vencidos.append((hab_id, titulo, fecha_limite))
+            except:
+                pass
+        
+        return vencidos
+
     def obtener_experiencia(self, usuarioid):
         conn = sqlite3.connect(self.user_db_path)
         cursor = conn.cursor()
@@ -147,7 +183,6 @@ class DatabaseManager:
         if exp:
             return exp
         else:
-            # Crear registro si no existe
             self.inicializar_experiencia(usuarioid)
             return (1, 0, 0)
 
@@ -163,13 +198,13 @@ class DatabaseManager:
         exp_actual += 1
         habitos_completados += 1
         
-        # Calcular experiencia necesaria para subir de nivel (3, 6, 9, 12... hasta 30)
         exp_necesaria = min(nivel * 3, 30)
+        subio_nivel = False
         
         if exp_actual >= exp_necesaria:
-            # Subir de nivel
             nivel += 1
             exp_actual = 0
+            subio_nivel = True
         
         conn = sqlite3.connect(self.user_db_path)
         cursor = conn.cursor()
@@ -178,7 +213,26 @@ class DatabaseManager:
         conn.commit()
         conn.close()
         
-        return nivel, exp_actual, exp_necesaria
+        return nivel, exp_actual, exp_necesaria, subio_nivel
+
+    def reducir_nivel(self, usuarioid):
+        """Reduce el nivel del usuario por fallar en completar un hábito"""
+        nivel, exp_actual, habitos_completados = self.obtener_experiencia(usuarioid)
+        
+        if nivel > 1:
+            nivel -= 1
+            exp_necesaria = min(nivel * 3, 30)
+            exp_actual = 0  # Resetear experiencia al bajar de nivel
+            
+            conn = sqlite3.connect(self.user_db_path)
+            cursor = conn.cursor()
+            cursor.execute("UPDATE Experiencia SET Nivel=?, ExperienciaActual=? WHERE UsuarioID=?", 
+                          (nivel, exp_actual, usuarioid))
+            conn.commit()
+            conn.close()
+            
+            return True, nivel
+        return False, nivel
 
 
 # Clase principal de la app
@@ -190,53 +244,304 @@ class HabitApp:
         self.page.vertical_alignment = ft.MainAxisAlignment.CENTER
         self.page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
 
-        # Simula pantalla tipo celular
         self.page.window_width = 400
         self.page.window_height = 800
         self.page.window_resizable = False
 
-        # Rutas
         self.img_path = os.path.join(os.path.dirname(__file__), "Imagenes")
         self.db = DatabaseManager()
         self.usuario_actual = None
+        self.mostrar_mensaje_nivel = None  # Para guardar mensaje de nivel reducido
 
-        # Inicia en pantalla de inicio
         self.pantalla_inicio()
 
     def normalizar_fecha(self, fecha_texto):
-        """Convierte diferentes formatos de fecha a dd/mm/yyyy"""
         fecha_texto = fecha_texto.strip()
         
-        # Formato dd/mm/yyyy o dd-mm-yyyy
         if re.match(r'^\d{1,2}[/-]\d{1,2}[/-]\d{4}$', fecha_texto):
             fecha_texto = fecha_texto.replace('-', '/')
             partes = fecha_texto.split('/')
             return f"{int(partes[0]):02d}/{int(partes[1]):02d}/{partes[2]}"
         
-        # Formato yyyy/mm/dd o yyyy-mm-dd
         elif re.match(r'^\d{4}[/-]\d{1,2}[/-]\d{1,2}$', fecha_texto):
             fecha_texto = fecha_texto.replace('-', '/')
             partes = fecha_texto.split('/')
             return f"{int(partes[2]):02d}/{int(partes[1]):02d}/{partes[0]}"
         
-        # Formato mm/dd/yyyy o mm-dd-yyyy
-        elif re.match(r'^\d{1,2}[/-]\d{1,2}[/-]\d{4}$', fecha_texto):
-            fecha_texto = fecha_texto.replace('-', '/')
-            partes = fecha_texto.split('/')
-            # Intentar determinar si es mm/dd o dd/mm
-            if int(partes[0]) > 12:  # Es día/mes
-                return f"{int(partes[0]):02d}/{int(partes[1]):02d}/{partes[2]}"
-            else:  # Asumir mes/día
-                return f"{int(partes[1]):02d}/{int(partes[0]):02d}/{partes[2]}"
-        
-        # Formato ddmmyyyy sin separadores
         elif re.match(r'^\d{8}$', fecha_texto):
             return f"{fecha_texto[:2]}/{fecha_texto[2:4]}/{fecha_texto[4:]}"
         
-        return fecha_texto  # Devolver sin cambios si no coincide
+        return fecha_texto
 
-    
-    # Pantalla 1: Inicio
+    def mostrar_dialogo_subida_nivel(self, nivel_nuevo):
+        "Muestra un diálogo cuando el usuario sube de nivel"
+        dialogo = ft.AlertDialog(
+            modal=True,
+            title=ft.Row([
+                ft.Icon(ft.Icons.CELEBRATION, color="gold", size=30),
+                ft.Text("¡FELICIDADES!", size=24, weight="bold", color="gold"),
+            ], alignment=ft.MainAxisAlignment.CENTER),
+            content=ft.Container(
+                content=ft.Column([
+                    ft.Image(src=os.path.join(self.img_path, "Imagen2.png"), width=120, height=120),
+                    ft.Text(
+                        f"¡Has subido al Nivel {nivel_nuevo}!",
+                        size=18,
+                        weight="bold",
+                        color="black",
+                        text_align=ft.TextAlign.CENTER
+                    ),
+                    ft.Text(
+                        "Sigue así y alcanzarás tus metas",
+                        size=14,
+                        color="black54",
+                        text_align=ft.TextAlign.CENTER,
+                        italic=True
+                    ),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+                padding=20,
+            ),
+            actions=[
+                ft.ElevatedButton(
+                    "¡Continuar!",
+                    bgcolor="gold",
+                    color="white",
+                    on_click=lambda e: self.page.close(dialogo)
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.CENTER,
+            bgcolor=ft.Colors.WHITE,
+        )
+        
+        self.page.open(dialogo)
+
+    def mostrar_dialogo_reduccion_nivel(self, habitos_vencidos):
+        "Muestra un diálogo cuando hay hábitos vencidos y se reduce el nivel"
+        dialogo_contenido = ft.Column([
+            ft.Icon(ft.Icons.WARNING_AMBER, color="red", size=50),
+            ft.Text(
+                "Hábitos Vencidos Detectados",
+                size=18,
+                weight="bold",
+                color="red",
+                text_align=ft.TextAlign.CENTER
+            ),
+            ft.Text(
+                f"Tienes {len(habitos_vencidos)} hábito(s) sin completar que ya pasaron su fecha límite.",
+                size=12,
+                color="black54",
+                text_align=ft.TextAlign.CENTER
+            ),
+            ft.Divider(height=10, color="grey400"),
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10)
+        
+        # Mostrar lista de hábitos vencidos
+        for hab_id, titulo, fecha in habitos_vencidos[:3]:  # Mostrar máximo 3
+            dialogo_contenido.controls.append(
+                ft.Text(f"• {titulo} (vencido: {fecha})", size=11, color="black")
+            )
+        
+        if len(habitos_vencidos) > 3:
+            dialogo_contenido.controls.append(
+                ft.Text(f"... y {len(habitos_vencidos) - 3} más", size=11, color="black54", italic=True)
+            )
+
+        dialogo = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(" Atención", size=20, weight="bold", color="red"),
+            content=ft.Container(
+                content=dialogo_contenido,
+                padding=10,
+            ),
+            actions=[
+                ft.TextButton(
+                    "Cancelar",
+                    on_click=lambda e: self.page.close(dialogo),
+                    style=ft.ButtonStyle(color="black54")
+                ),
+                ft.ElevatedButton(
+                    "Eliminar y Aceptar Penalización",
+                    bgcolor="red",
+                    color="white",
+                    on_click=lambda e: self.eliminar_y_penalizar_habitos(dialogo, habitos_vencidos)
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            bgcolor=ft.Colors.WHITE,
+        )
+        
+        self.page.open(dialogo)
+
+    def eliminar_y_penalizar_habitos(self, dialogo, habitos_vencidos):
+        "Función separada para manejar la eliminación y penalización"
+        # Eliminar hábitos vencidos
+        for hab_id, _, _ in habitos_vencidos:
+            self.db.eliminar_habito(hab_id)
+        
+        # Reducir nivel
+        bajo_nivel, nivel_actual = self.db.reducir_nivel(self.usuario_actual)
+        
+        # Cerrar el diálogo
+        self.page.close(dialogo)
+        
+        # Guardar si bajó de nivel para mostrarlo después
+        self.mostrar_mensaje_nivel = (bajo_nivel, nivel_actual) if bajo_nivel else None
+        
+        # Recargar la pantalla 5 completamente
+        self.cargar_pantalla_principal_sin_verificacion()
+
+    def mostrar_dialogo_nivel_reducido(self, nivel_actual):
+        "Muestra diálogo informando que el nivel fue reducido"
+        def cerrar_y_actualizar(e):
+            self.page.close(dialogo)
+            # Actualizar la pantalla para reflejar los cambios
+            self.page.update()
+        
+        dialogo = ft.AlertDialog(
+            modal=True,
+            title=ft.Row([
+                ft.Icon(ft.Icons.ARROW_DOWNWARD, color="red", size=30),
+                ft.Text("Nivel Reducido", size=20, weight="bold", color="red"),
+            ], alignment=ft.MainAxisAlignment.CENTER),
+            content=ft.Container(
+                content=ft.Column([
+                    ft.Text(
+                        f"Tu nivel ha bajado a Nivel {nivel_actual}",
+                        size=16,
+                        weight="bold",
+                        color="black",
+                        text_align=ft.TextAlign.CENTER
+                    ),
+                    ft.Text(
+                        "No te desanimes. Completa tus hábitos a tiempo para recuperar tu nivel.",
+                        size=12,
+                        color="black54",
+                        text_align=ft.TextAlign.CENTER
+                    ),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+                padding=20,
+            ),
+            actions=[
+                ft.ElevatedButton(
+                    "Entendido",
+                    bgcolor="black",
+                    color="white",
+                    on_click=cerrar_y_actualizar
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.CENTER,
+            bgcolor=ft.Colors.WHITE,
+        )
+        
+        self.page.open(dialogo)
+
+    def verificar_habitos_vencidos(self):
+        "Verifica si hay hábitos vencidos al entrar a la pantalla principal"
+        habitos_vencidos = self.db.obtener_habitos_vencidos(self.usuario_actual)
+        if habitos_vencidos:
+            self.mostrar_dialogo_reduccion_nivel(habitos_vencidos)
+
+    def cargar_pantalla_principal_sin_verificacion(self):
+        "Carga la pantalla principal sin verificar hábitos vencidos"
+        nombre_usuario = self.db.obtener_usuario(self.usuario_actual)
+        
+        header = ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Image(src=os.path.join(self.img_path, "Imagen3.png"), width=40, height=40),
+                    ft.Column([
+                        ft.Text(f"Bienvenido a HabitTracker", size=14, weight="bold", color="black"),
+                        ft.Text(nombre_usuario, size=12, color="black54"),
+                    ], spacing=0),
+                ], alignment=ft.MainAxisAlignment.START),
+                ft.Container(
+                    content=ft.Image(src=os.path.join(self.img_path, "Imagen1.png"), width=200, height=150, fit=ft.ImageFit.CONTAIN),
+                    alignment=ft.alignment.center,
+                ),
+            ]),
+            padding=15,
+            bgcolor=ft.Colors.WHITE,
+        )
+
+        btn_agregar = ft.Container(
+            content=ft.ElevatedButton(
+                "Añadir Hábitos",
+                bgcolor="black",
+                color="white",
+                width=300,
+                on_click=lambda e: self.mostrar_dialogo_agregar_habito()
+            ),
+            padding=ft.padding.symmetric(vertical=10),
+            alignment=ft.alignment.center,
+        )
+
+        self.lista_habitos = ft.Column([], spacing=10, scroll=ft.ScrollMode.AUTO)
+        self.actualizar_lista_habitos()
+
+        actividades_titulo = ft.Container(
+            content=ft.Text("Tus actividades por realizar son:", size=14, weight="bold", color="black"),
+            padding=ft.padding.only(left=15, top=10, bottom=5),
+        )
+
+        habitos_pendientes = len(self.db.obtener_habitos_incompletos(self.usuario_actual))
+        
+        bottom_nav = ft.Container(
+            content=ft.Row([
+                ft.IconButton(icon=ft.Icons.HOME, icon_color="black", on_click=lambda e: self.mostrar_pantalla_principal()),
+                ft.Container(
+                    content=ft.Stack([
+                        ft.IconButton(icon=ft.Icons.NOTIFICATIONS_OUTLINED, icon_color="black", icon_size=28, 
+                                    on_click=lambda e: self.mostrar_notificaciones()),
+                        ft.Container(
+                            content=ft.Text(str(habitos_pendientes), 
+                                          size=10, color="white", weight="bold"),
+                            bgcolor="red",
+                            width=18,
+                            height=18,
+                            border_radius=9,
+                            alignment=ft.alignment.center,
+                            right=8,
+                            top=8,
+                            visible=habitos_pendientes > 0,
+                        ),
+                    ]),
+                    width=48,
+                    height=48,
+                ),
+                ft.IconButton(icon=ft.Icons.ACCOUNT_CIRCLE, icon_color="teal", on_click=lambda e: self.mostrar_perfil()),
+            ], alignment=ft.MainAxisAlignment.SPACE_AROUND),
+            bgcolor=ft.Colors.WHITE,
+            padding=10,
+            border=ft.border.only(top=ft.BorderSide(1, "grey300")),
+        )
+
+        contenido = ft.Column(
+            [
+                header,
+                btn_agregar,
+                actividades_titulo,
+                ft.Container(
+                    content=self.lista_habitos,
+                    expand=True,
+                    padding=ft.padding.symmetric(horizontal=15),
+                ),
+                bottom_nav,
+            ],
+            spacing=0,
+            expand=True,
+        )
+
+        self.page.clean()
+        self.page.vertical_alignment = ft.MainAxisAlignment.START
+        self.page.add(contenido)
+        
+        # Mostrar mensaje de nivel reducido si existe
+        if self.mostrar_mensaje_nivel:
+            bajo_nivel, nivel_actual = self.mostrar_mensaje_nivel
+            self.mostrar_mensaje_nivel = None  # Limpiar después de mostrar
+            if bajo_nivel:
+                self.mostrar_dialogo_nivel_reducido(nivel_actual)
+
     def pantalla_inicio(self):
         correo = ft.TextField(label="correo@electrónico.com", width=300, color="black")
         btn_continuar = ft.ElevatedButton(
@@ -264,8 +569,6 @@ class HabitApp:
         self.page.clean()
         self.page.add(contenido)
 
-    
-    # Pantalla 2: Registro
     def mostrar_registro(self):
         def regresar_click(e):
             self.pantalla_inicio()
@@ -324,8 +627,6 @@ class HabitApp:
         self.page.clean()
         self.page.add(contenido)
 
-    
-    # Pantalla 3: Éxito
     def mostrar_exito(self):
         def regresar_click(e):
             self.mostrar_registro()
@@ -348,8 +649,6 @@ class HabitApp:
         self.page.clean()
         self.page.add(contenido)
 
-    
-    # Pantalla 4: Login con UsuarioID
     def mostrar_login_contra(self):
         def regresar_click(e):
             self.pantalla_inicio()
@@ -387,12 +686,12 @@ class HabitApp:
         self.page.clean()
         self.page.add(contenido)
 
-    
-    # Pantalla 5: Pantalla Principal de HabitTracker
     def mostrar_pantalla_principal(self):
+        # Verificar hábitos vencidos al entrar
+        self.verificar_habitos_vencidos()
+        
         nombre_usuario = self.db.obtener_usuario(self.usuario_actual)
         
-        # Header
         header = ft.Container(
             content=ft.Column([
                 ft.Row([
@@ -411,7 +710,6 @@ class HabitApp:
             bgcolor=ft.Colors.WHITE,
         )
 
-        # Botón añadir hábitos
         btn_agregar = ft.Container(
             content=ft.ElevatedButton(
                 "Añadir Hábitos",
@@ -424,7 +722,6 @@ class HabitApp:
             alignment=ft.alignment.center,
         )
 
-        # Lista de actividades
         self.lista_habitos = ft.Column([], spacing=10, scroll=ft.ScrollMode.AUTO)
         self.actualizar_lista_habitos()
 
@@ -433,7 +730,6 @@ class HabitApp:
             padding=ft.padding.only(left=15, top=10, bottom=5),
         )
 
-        # Bottom Navigation Bar con contador
         habitos_pendientes = len(self.db.obtener_habitos_incompletos(self.usuario_actual))
         
         bottom_nav = ft.Container(
@@ -466,7 +762,6 @@ class HabitApp:
             border=ft.border.only(top=ft.BorderSide(1, "grey300")),
         )
 
-        # Layout principal
         contenido = ft.Column(
             [
                 header,
@@ -509,11 +804,10 @@ class HabitApp:
             on_change=lambda e: self.toggle_habito(habito_id, e.control.value)
         )
         
-        # Color según prioridad
         colores_prioridad = {
-            1: ft.Colors.RED_100,  # Alta prioridad
-            2: ft.Colors.YELLOW_100,  # Media prioridad
-            3: ft.Colors.GREEN_100,  # Baja prioridad
+            1: ft.Colors.RED_100,
+            2: ft.Colors.YELLOW_100,
+            3: ft.Colors.GREEN_100,
         }
         
         etiquetas_prioridad = {
@@ -522,7 +816,6 @@ class HabitApp:
             3: "🟢 Baja",
         }
         
-        # Si está completado, cambiar el color a gris
         color_fondo = ft.Colors.GREY_300 if completado else colores_prioridad.get(prioridad, ft.Colors.GREY_100)
         
         return ft.Container(
@@ -543,12 +836,13 @@ class HabitApp:
         )
 
     def toggle_habito(self, habito_id, completado):
-        # Actualizar el estado
         self.db.actualizar_habito_completado(habito_id, int(completado))
         
-        # Si se completó, agregar experiencia
         if completado:
-            self.db.agregar_experiencia(self.usuario_actual)
+            nivel, exp_actual, exp_necesaria, subio_nivel = self.db.agregar_experiencia(self.usuario_actual)
+            
+            if subio_nivel:
+                self.mostrar_dialogo_subida_nivel(nivel)
         
         self.actualizar_lista_habitos()
 
@@ -592,7 +886,6 @@ class HabitApp:
                 dialogo.update()
                 return
             
-            # Normalizar la fecha
             fecha_normalizada = self.normalizar_fecha(fecha_field.value)
             prioridad = int(prioridad_dropdown.value)
             self.db.agregar_habito(self.usuario_actual, titulo_field.value, fecha_normalizada, prioridad)
@@ -616,10 +909,7 @@ class HabitApp:
 
         self.page.open(dialogo)
 
-    
-    # Pantalla 6: Notificaciones
     def mostrar_notificaciones(self):
-        # Header
         header = ft.Container(
             content=ft.Row([
                 ft.Image(src=os.path.join(self.img_path, "Imagen7.png"), width=40, height=40),
@@ -629,11 +919,9 @@ class HabitApp:
             bgcolor=ft.Colors.WHITE,
         )
 
-        # Lista de notificaciones (hábitos pendientes)
         self.lista_notificaciones = ft.Column([], spacing=10, scroll=ft.ScrollMode.AUTO)
         self.actualizar_lista_notificaciones()
 
-        # Bottom Navigation Bar
         habitos_pendientes = len(self.db.obtener_habitos_incompletos(self.usuario_actual))
         
         bottom_nav = ft.Container(
@@ -665,7 +953,6 @@ class HabitApp:
             border=ft.border.only(top=ft.BorderSide(1, "grey300")),
         )
 
-        # Layout principal
         contenido = ft.Column(
             [
                 header,
@@ -684,16 +971,12 @@ class HabitApp:
         self.page.vertical_alignment = ft.MainAxisAlignment.START
         self.page.add(contenido)
 
-    
-    # Pantalla 7: Perfil de Usuario
     def mostrar_perfil(self):
         nombre_usuario = self.db.obtener_usuario(self.usuario_actual)
         nivel, exp_actual, habitos_completados = self.db.obtener_experiencia(self.usuario_actual)
         
-        # Calcular experiencia necesaria
         exp_necesaria = min(nivel * 3, 30)
         
-        # Header
         header = ft.Container(
             content=ft.Row([
                 ft.Image(src=os.path.join(self.img_path, "Imagen7.png"), width=40, height=40),
@@ -706,7 +989,6 @@ class HabitApp:
             bgcolor=ft.Colors.WHITE,
         )
 
-        # Campos de información del usuario
         nombre_field = ft.TextField(
             label="Nombre del Usuario",
             value=nombre_usuario,
@@ -737,7 +1019,6 @@ class HabitApp:
             border_color="black54"
         )
 
-        # Barra de experiencia
         def crear_cuadro_exp(lleno):
             return ft.Container(
                 width=8,
@@ -774,7 +1055,6 @@ class HabitApp:
             alignment=ft.alignment.center,
         )
 
-        # Botón cerrar sesión
         btn_cerrar_sesion = ft.ElevatedButton(
             "Cerrar Sesión",
             bgcolor="black",
@@ -783,7 +1063,6 @@ class HabitApp:
             on_click=lambda e: self.cerrar_sesion()
         )
 
-        # Bottom Navigation Bar
         habitos_pendientes = len(self.db.obtener_habitos_incompletos(self.usuario_actual))
         
         bottom_nav = ft.Container(
@@ -816,7 +1095,6 @@ class HabitApp:
             border=ft.border.only(top=ft.BorderSide(1, "grey300")),
         )
 
-        # Layout principal
         contenido = ft.Column(
             [
                 header,
@@ -844,7 +1122,6 @@ class HabitApp:
         self.page.add(contenido)
 
     def cerrar_sesion(self):
-        """Cierra la sesión y regresa a la pantalla de inicio"""
         self.usuario_actual = None
         self.pantalla_inicio()
 
@@ -853,7 +1130,6 @@ class HabitApp:
         habitos_pendientes = self.db.obtener_habitos_incompletos(self.usuario_actual)
         habitos_completados = self.db.obtener_habitos_completados(self.usuario_actual)
         
-        # Sección de hábitos pendientes
         if habitos_pendientes:
             self.lista_notificaciones.controls.append(
                 ft.Text("Pendientes", size=16, weight="bold", color="black")
@@ -873,7 +1149,6 @@ class HabitApp:
                 )
             )
         
-        # Sección de hábitos completados
         if habitos_completados:
             self.lista_notificaciones.controls.append(
                 ft.Divider(height=20, color="grey400")
@@ -897,7 +1172,6 @@ class HabitApp:
         self.page.update()
 
     def crear_tarjeta_notificacion(self, habito_id, titulo, fecha_limite, prioridad, es_completado):
-        # Calcular días restantes
         try:
             fecha_obj = datetime.strptime(fecha_limite, "%d/%m/%Y")
             hoy = datetime.now()
@@ -924,7 +1198,6 @@ class HabitApp:
             estado_texto = "Estado: Pendiente"
             estado_color = "black54"
 
-        # Determinar estado basado en prioridad
         if es_completado:
             estado_final = "Estado: Completado ✓"
             estado_color = "green"
@@ -935,7 +1208,6 @@ class HabitApp:
         else:
             estado_final = "Estado: Incompleto"
 
-        # Botón de eliminar solo para completados
         eliminar_btn = None
         if es_completado:
             eliminar_btn = ft.IconButton(
@@ -965,19 +1237,16 @@ class HabitApp:
         )
 
     def eliminar_habito_notificacion(self, habito_id):
-        """Elimina un hábito específico desde las notificaciones"""
         self.db.eliminar_habito(habito_id)
         self.actualizar_lista_notificaciones()
 
     def borrar_completados(self):
-        """Elimina todos los hábitos completados"""
         habitos_completados = self.db.obtener_habitos_completados(self.usuario_actual)
         for habito_id, _, _, _, _ in habitos_completados:
             self.db.eliminar_habito(habito_id)
         self.actualizar_lista_notificaciones()
 
 
-# Función principal
 def main(page: ft.Page):
     HabitApp(page)
 
