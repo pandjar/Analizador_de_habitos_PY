@@ -43,6 +43,21 @@ class DatabaseManager:
         """)
         conn.commit()
         conn.close()
+        
+        # Base de datos de experiencia de usuarios
+        conn = sqlite3.connect(self.user_db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS Experiencia (
+                UsuarioID TEXT PRIMARY KEY,
+                Nivel INTEGER DEFAULT 1,
+                ExperienciaActual INTEGER DEFAULT 0,
+                HabitosCompletados INTEGER DEFAULT 0,
+                FOREIGN KEY (UsuarioID) REFERENCES User(UsuarioID)
+            )
+        """)
+        conn.commit()
+        conn.close()
 
     def registrar_usuario(self, nombre, apellido, usuarioid, correo, contrasena):
         conn = sqlite3.connect(self.user_db_path)
@@ -122,6 +137,48 @@ class DatabaseManager:
         habitos = cursor.fetchall()
         conn.close()
         return habitos
+
+    def obtener_experiencia(self, usuarioid):
+        conn = sqlite3.connect(self.user_db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT Nivel, ExperienciaActual, HabitosCompletados FROM Experiencia WHERE UsuarioID=?", (usuarioid,))
+        exp = cursor.fetchone()
+        conn.close()
+        if exp:
+            return exp
+        else:
+            # Crear registro si no existe
+            self.inicializar_experiencia(usuarioid)
+            return (1, 0, 0)
+
+    def inicializar_experiencia(self, usuarioid):
+        conn = sqlite3.connect(self.user_db_path)
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR IGNORE INTO Experiencia (UsuarioID, Nivel, ExperienciaActual, HabitosCompletados) VALUES (?, 1, 0, 0)", (usuarioid,))
+        conn.commit()
+        conn.close()
+
+    def agregar_experiencia(self, usuarioid):
+        nivel, exp_actual, habitos_completados = self.obtener_experiencia(usuarioid)
+        exp_actual += 1
+        habitos_completados += 1
+        
+        # Calcular experiencia necesaria para subir de nivel (3, 6, 9, 12... hasta 30)
+        exp_necesaria = min(nivel * 3, 30)
+        
+        if exp_actual >= exp_necesaria:
+            # Subir de nivel
+            nivel += 1
+            exp_actual = 0
+        
+        conn = sqlite3.connect(self.user_db_path)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE Experiencia SET Nivel=?, ExperienciaActual=?, HabitosCompletados=? WHERE UsuarioID=?", 
+                      (nivel, exp_actual, habitos_completados, usuarioid))
+        conn.commit()
+        conn.close()
+        
+        return nivel, exp_actual, exp_necesaria
 
 
 # Clase principal de la app
@@ -402,7 +459,7 @@ class HabitApp:
                     width=48,
                     height=48,
                 ),
-                ft.IconButton(icon=ft.Icons.ACCOUNT_CIRCLE, icon_color="teal", on_click=lambda e: None),
+                ft.IconButton(icon=ft.Icons.ACCOUNT_CIRCLE, icon_color="teal", on_click=lambda e: self.mostrar_perfil()),
             ], alignment=ft.MainAxisAlignment.SPACE_AROUND),
             bgcolor=ft.Colors.WHITE,
             padding=10,
@@ -486,8 +543,13 @@ class HabitApp:
         )
 
     def toggle_habito(self, habito_id, completado):
-        # Actualizar el estado sin eliminar
+        # Actualizar el estado
         self.db.actualizar_habito_completado(habito_id, int(completado))
+        
+        # Si se completó, agregar experiencia
+        if completado:
+            self.db.agregar_experiencia(self.usuario_actual)
+        
         self.actualizar_lista_habitos()
 
     def mostrar_dialogo_agregar_habito(self):
@@ -504,6 +566,7 @@ class HabitApp:
             color="black",
             bgcolor=ft.Colors.WHITE,
             border_color="black54",
+            helper_text="Formatos: dd/mm/yyyy, yyyy-mm-dd, dd-mm-yyyy, ddmmyyyy",
             helper_style=ft.TextStyle(size=10, color="black54")
         )
         
@@ -595,7 +658,7 @@ class HabitApp:
                     width=48,
                     height=48,
                 ),
-                ft.IconButton(icon=ft.Icons.ACCOUNT_CIRCLE, icon_color="teal", on_click=lambda e: None),
+                ft.IconButton(icon=ft.Icons.ACCOUNT_CIRCLE, icon_color="teal", on_click=lambda e: self.mostrar_perfil()),
             ], alignment=ft.MainAxisAlignment.SPACE_AROUND),
             bgcolor=ft.Colors.WHITE,
             padding=10,
@@ -620,6 +683,170 @@ class HabitApp:
         self.page.clean()
         self.page.vertical_alignment = ft.MainAxisAlignment.START
         self.page.add(contenido)
+
+    
+    # Pantalla 7: Perfil de Usuario
+    def mostrar_perfil(self):
+        nombre_usuario = self.db.obtener_usuario(self.usuario_actual)
+        nivel, exp_actual, habitos_completados = self.db.obtener_experiencia(self.usuario_actual)
+        
+        # Calcular experiencia necesaria
+        exp_necesaria = min(nivel * 3, 30)
+        
+        # Header
+        header = ft.Container(
+            content=ft.Row([
+                ft.Image(src=os.path.join(self.img_path, "Imagen7.png"), width=40, height=40),
+                ft.Column([
+                    ft.Text(f"Bienvenido a HabitTracker", size=14, weight="bold", color="black"),
+                    ft.Text(nombre_usuario, size=12, color="black54"),
+                ], spacing=0),
+            ], alignment=ft.MainAxisAlignment.START),
+            padding=15,
+            bgcolor=ft.Colors.WHITE,
+        )
+
+        # Campos de información del usuario
+        nombre_field = ft.TextField(
+            label="Nombre del Usuario",
+            value=nombre_usuario,
+            width=300,
+            color="black",
+            bgcolor=ft.Colors.WHITE,
+            read_only=True,
+            border_color="black54"
+        )
+        
+        id_field = ft.TextField(
+            label="Id del Usuario",
+            value=self.usuario_actual,
+            width=300,
+            color="black",
+            bgcolor=ft.Colors.WHITE,
+            read_only=True,
+            border_color="black54"
+        )
+        
+        nivel_field = ft.TextField(
+            label="Nivel del Usuario",
+            value=f"Nivel {nivel}",
+            width=300,
+            color="black",
+            bgcolor=ft.Colors.WHITE,
+            read_only=True,
+            border_color="black54"
+        )
+
+        # Barra de experiencia
+        def crear_cuadro_exp(lleno):
+            return ft.Container(
+                width=8,
+                height=30,
+                bgcolor=ft.Colors.BLUE if lleno else ft.Colors.GREY_300,
+                border_radius=2,
+            )
+        
+        cuadros_exp = [crear_cuadro_exp(i < exp_actual) for i in range(exp_necesaria)]
+        
+        barra_experiencia = ft.Container(
+            content=ft.Column([
+                ft.Text("Experiencia", size=14, weight="bold", color="black", text_align=ft.TextAlign.CENTER),
+                ft.Container(
+                    content=ft.Row(
+                        cuadros_exp,
+                        spacing=3,
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        wrap=True,
+                    ),
+                    width=300,
+                    padding=10,
+                    border=ft.border.all(1, "black54"),
+                    border_radius=10,
+                    bgcolor=ft.Colors.WHITE,
+                ),
+                ft.Text(
+                    f"{exp_actual}/{exp_necesaria} - {habitos_completados} hábitos completados",
+                    size=11,
+                    color="black54",
+                    text_align=ft.TextAlign.CENTER
+                ),
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
+            alignment=ft.alignment.center,
+        )
+
+        # Botón cerrar sesión
+        btn_cerrar_sesion = ft.ElevatedButton(
+            "Cerrar Sesión",
+            bgcolor="black",
+            color="white",
+            width=300,
+            on_click=lambda e: self.cerrar_sesion()
+        )
+
+        # Bottom Navigation Bar
+        habitos_pendientes = len(self.db.obtener_habitos_incompletos(self.usuario_actual))
+        
+        bottom_nav = ft.Container(
+            content=ft.Row([
+                ft.IconButton(icon=ft.Icons.HOME, icon_color="black", on_click=lambda e: self.mostrar_pantalla_principal()),
+                ft.Container(
+                    content=ft.Stack([
+                        ft.IconButton(icon=ft.Icons.NOTIFICATIONS_OUTLINED, icon_color="black", icon_size=28, 
+                                    on_click=lambda e: self.mostrar_notificaciones()),
+                        ft.Container(
+                            content=ft.Text(str(habitos_pendientes), 
+                                          size=10, color="white", weight="bold"),
+                            bgcolor="red",
+                            width=18,
+                            height=18,
+                            border_radius=9,
+                            alignment=ft.alignment.center,
+                            right=8,
+                            top=8,
+                            visible=habitos_pendientes > 0,
+                        ),
+                    ]),
+                    width=48,
+                    height=48,
+                ),
+                ft.IconButton(icon=ft.Icons.ACCOUNT_CIRCLE, icon_color="teal", on_click=lambda e: self.mostrar_perfil()),
+            ], alignment=ft.MainAxisAlignment.SPACE_AROUND),
+            bgcolor=ft.Colors.WHITE,
+            padding=10,
+            border=ft.border.only(top=ft.BorderSide(1, "grey300")),
+        )
+
+        # Layout principal
+        contenido = ft.Column(
+            [
+                header,
+                ft.Container(
+                    content=ft.Column([
+                        nombre_field,
+                        id_field,
+                        nivel_field,
+                        barra_experiencia,
+                        ft.Container(height=20),
+                        btn_cerrar_sesion,
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15),
+                    expand=True,
+                    padding=ft.padding.symmetric(horizontal=15, vertical=20),
+                    alignment=ft.alignment.center,
+                ),
+                bottom_nav,
+            ],
+            spacing=0,
+            expand=True,
+        )
+
+        self.page.clean()
+        self.page.vertical_alignment = ft.MainAxisAlignment.START
+        self.page.add(contenido)
+
+    def cerrar_sesion(self):
+        """Cierra la sesión y regresa a la pantalla de inicio"""
+        self.usuario_actual = None
+        self.pantalla_inicio()
 
     def actualizar_lista_notificaciones(self):
         self.lista_notificaciones.controls.clear()
