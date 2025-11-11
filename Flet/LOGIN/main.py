@@ -3,12 +3,14 @@ import sqlite3
 import os
 from datetime import datetime
 import re
+import json
 
 # Clase para manejar la base de datos
 class DatabaseManager:
     def __init__(self):
         self.user_db_path = os.path.join(os.path.dirname(__file__), "User.db")
         self.habitos_db_path = os.path.join(os.path.dirname(__file__), "habito.db")
+        self.session_file = os.path.join(os.path.dirname(__file__), "session.json")
         self.inicializar_db()
 
     def inicializar_db(self):
@@ -28,7 +30,7 @@ class DatabaseManager:
         conn.commit()
         conn.close()
         
-        # Base de datos de hábitos
+        # Base de datos de hábitos - MODIFICADA para incluir HoraLimite
         conn = sqlite3.connect(self.habitos_db_path)
         cursor = conn.cursor()
         cursor.execute("""
@@ -37,6 +39,7 @@ class DatabaseManager:
                 UsuarioID TEXT,
                 Titulo TEXT,
                 FechaLimite TEXT,
+                HoraLimite TEXT,
                 Prioridad INTEGER DEFAULT 1,
                 Completado INTEGER DEFAULT 0,
                 FechaCreacion TEXT
@@ -59,6 +62,33 @@ class DatabaseManager:
         """)
         conn.commit()
         conn.close()
+
+    def guardar_sesion(self, usuarioid):
+        """Guarda la sesión del usuario"""
+        try:
+            with open(self.session_file, 'w') as f:
+                json.dump({"usuario": usuarioid, "timestamp": datetime.now().isoformat()}, f)
+        except:
+            pass
+
+    def cargar_sesion(self):
+        """Carga la sesión guardada"""
+        try:
+            if os.path.exists(self.session_file):
+                with open(self.session_file, 'r') as f:
+                    data = json.load(f)
+                    return data.get("usuario")
+        except:
+            pass
+        return None
+
+    def cerrar_sesion(self):
+        """Elimina el archivo de sesión"""
+        try:
+            if os.path.exists(self.session_file):
+                os.remove(self.session_file)
+        except:
+            pass
 
     def registrar_usuario(self, nombre, apellido, usuarioid, correo, contrasena):
         conn = sqlite3.connect(self.user_db_path)
@@ -94,30 +124,80 @@ class DatabaseManager:
     def obtener_habitos(self, usuarioid):
         conn = sqlite3.connect(self.habitos_db_path)
         cursor = conn.cursor()
-        cursor.execute("SELECT ID, Titulo, FechaLimite, Prioridad, Completado FROM Habitos WHERE UsuarioID=? ORDER BY Completado ASC, Prioridad ASC", (usuarioid,))
+        cursor.execute("PRAGMA table_info(Habitos)")
+        columnas = [col[1] for col in cursor.fetchall()]
+        
+        if "HoraLimite" in columnas:
+            cursor.execute("SELECT ID, Titulo, FechaLimite, HoraLimite, Prioridad, Completado FROM Habitos WHERE UsuarioID=? ORDER BY Completado ASC, Prioridad ASC", (usuarioid,))
+        else:
+            cursor.execute("SELECT ID, Titulo, FechaLimite, Prioridad, Completado FROM Habitos WHERE UsuarioID=? ORDER BY Completado ASC, Prioridad ASC", (usuarioid,))
+        
         habitos = cursor.fetchall()
         conn.close()
         return habitos
 
-    def agregar_habito(self, usuarioid, titulo, fecha_limite, prioridad):
+    def obtener_habito_por_id(self, habito_id):
+        """Obtiene un hábito específico por su ID"""
         conn = sqlite3.connect(self.habitos_db_path)
         cursor = conn.cursor()
-        # Verificar si la columna FechaCreacion existe
         cursor.execute("PRAGMA table_info(Habitos)")
         columnas = [col[1] for col in cursor.fetchall()]
         
-        if "FechaCreacion" in columnas:
-            fecha_creacion = datetime.now().strftime("%d/%m/%Y")
+        if "HoraLimite" in columnas:
+            cursor.execute("SELECT ID, Titulo, FechaLimite, HoraLimite, Prioridad FROM Habitos WHERE ID=?", (habito_id,))
+        else:
+            cursor.execute("SELECT ID, Titulo, FechaLimite, Prioridad FROM Habitos WHERE ID=?", (habito_id,))
+        
+        habito = cursor.fetchone()
+        conn.close()
+        return habito
+
+    def agregar_habito(self, usuarioid, titulo, fecha_limite, hora_limite, prioridad):
+        conn = sqlite3.connect(self.habitos_db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("PRAGMA table_info(Habitos)")
+        columnas = [col[1] for col in cursor.fetchall()]
+        
+        fecha_creacion = datetime.now().strftime("%d/%m/%Y")
+        
+        if "HoraLimite" in columnas and "FechaCreacion" in columnas:
+            cursor.execute(
+                "INSERT INTO Habitos (UsuarioID, Titulo, FechaLimite, HoraLimite, Prioridad, FechaCreacion) VALUES (?, ?, ?, ?, ?, ?)",
+                (usuarioid, titulo, fecha_limite, hora_limite, prioridad, fecha_creacion)
+            )
+        elif "FechaCreacion" in columnas:
             cursor.execute(
                 "INSERT INTO Habitos (UsuarioID, Titulo, FechaLimite, Prioridad, FechaCreacion) VALUES (?, ?, ?, ?, ?)",
                 (usuarioid, titulo, fecha_limite, prioridad, fecha_creacion)
             )
         else:
-            # Si no existe la columna, insertar sin ella
             cursor.execute(
                 "INSERT INTO Habitos (UsuarioID, Titulo, FechaLimite, Prioridad) VALUES (?, ?, ?, ?)",
                 (usuarioid, titulo, fecha_limite, prioridad)
             )
+        conn.commit()
+        conn.close()
+
+    def editar_habito(self, habito_id, titulo, fecha_limite, hora_limite, prioridad):
+        """Edita un hábito existente"""
+        conn = sqlite3.connect(self.habitos_db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("PRAGMA table_info(Habitos)")
+        columnas = [col[1] for col in cursor.fetchall()]
+        
+        if "HoraLimite" in columnas:
+            cursor.execute(
+                "UPDATE Habitos SET Titulo=?, FechaLimite=?, HoraLimite=?, Prioridad=? WHERE ID=?",
+                (titulo, fecha_limite, hora_limite, prioridad, habito_id)
+            )
+        else:
+            cursor.execute(
+                "UPDATE Habitos SET Titulo=?, FechaLimite=?, Prioridad=? WHERE ID=?",
+                (titulo, fecha_limite, prioridad, habito_id)
+            )
+        
         conn.commit()
         conn.close()
 
@@ -138,7 +218,15 @@ class DatabaseManager:
     def obtener_habitos_incompletos(self, usuarioid):
         conn = sqlite3.connect(self.habitos_db_path)
         cursor = conn.cursor()
-        cursor.execute("SELECT ID, Titulo, FechaLimite, Prioridad, Completado FROM Habitos WHERE UsuarioID=? AND Completado=0 ORDER BY Prioridad ASC", (usuarioid,))
+        
+        cursor.execute("PRAGMA table_info(Habitos)")
+        columnas = [col[1] for col in cursor.fetchall()]
+        
+        if "HoraLimite" in columnas:
+            cursor.execute("SELECT ID, Titulo, FechaLimite, HoraLimite, Prioridad, Completado FROM Habitos WHERE UsuarioID=? AND Completado=0 ORDER BY Prioridad ASC", (usuarioid,))
+        else:
+            cursor.execute("SELECT ID, Titulo, FechaLimite, Prioridad, Completado FROM Habitos WHERE UsuarioID=? AND Completado=0 ORDER BY Prioridad ASC", (usuarioid,))
+        
         habitos = cursor.fetchall()
         conn.close()
         return habitos
@@ -146,29 +234,63 @@ class DatabaseManager:
     def obtener_habitos_completados(self, usuarioid):
         conn = sqlite3.connect(self.habitos_db_path)
         cursor = conn.cursor()
-        cursor.execute("SELECT ID, Titulo, FechaLimite, Prioridad, Completado FROM Habitos WHERE UsuarioID=? AND Completado=1 ORDER BY Prioridad ASC", (usuarioid,))
+        
+        cursor.execute("PRAGMA table_info(Habitos)")
+        columnas = [col[1] for col in cursor.fetchall()]
+        
+        if "HoraLimite" in columnas:
+            cursor.execute("SELECT ID, Titulo, FechaLimite, HoraLimite, Prioridad, Completado FROM Habitos WHERE UsuarioID=? AND Completado=1 ORDER BY Prioridad ASC", (usuarioid,))
+        else:
+            cursor.execute("SELECT ID, Titulo, FechaLimite, Prioridad, Completado FROM Habitos WHERE UsuarioID=? AND Completado=1 ORDER BY Prioridad ASC", (usuarioid,))
+        
         habitos = cursor.fetchall()
         conn.close()
         return habitos
 
     def obtener_habitos_vencidos(self, usuarioid):
-        "Obtiene hábitos incompletos que ya pasaron su fecha límite"
+        """Obtiene hábitos incompletos que ya pasaron su fecha y hora límite"""
         conn = sqlite3.connect(self.habitos_db_path)
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT ID, Titulo, FechaLimite FROM Habitos WHERE UsuarioID=? AND Completado=0",
-            (usuarioid,)
-        )
+        
+        cursor.execute("PRAGMA table_info(Habitos)")
+        columnas = [col[1] for col in cursor.fetchall()]
+        
+        if "HoraLimite" in columnas:
+            cursor.execute(
+                "SELECT ID, Titulo, FechaLimite, HoraLimite FROM Habitos WHERE UsuarioID=? AND Completado=0",
+                (usuarioid,)
+            )
+        else:
+            cursor.execute(
+                "SELECT ID, Titulo, FechaLimite FROM Habitos WHERE UsuarioID=? AND Completado=0",
+                (usuarioid,)
+            )
+        
         habitos = cursor.fetchall()
         conn.close()
         
-        hoy = datetime.now()
+        ahora = datetime.now()
         vencidos = []
-        for hab_id, titulo, fecha_limite in habitos:
+        
+        for habito in habitos:
             try:
-                fecha_obj = datetime.strptime(fecha_limite, "%d/%m/%Y")
-                if fecha_obj.date() < hoy.date():
-                    vencidos.append((hab_id, titulo, fecha_limite))
+                if "HoraLimite" in columnas and len(habito) >= 4:
+                    hab_id, titulo, fecha_limite, hora_limite = habito[:4]
+                    if hora_limite:
+                        fecha_hora_str = f"{fecha_limite} {hora_limite}"
+                        fecha_hora_obj = datetime.strptime(fecha_hora_str, "%d/%m/%Y %H:%M")
+                        
+                        if fecha_hora_obj < ahora:
+                            vencidos.append((hab_id, titulo, f"{fecha_limite} {hora_limite}"))
+                    else:
+                        fecha_obj = datetime.strptime(fecha_limite, "%d/%m/%Y")
+                        if fecha_obj.date() < ahora.date():
+                            vencidos.append((hab_id, titulo, fecha_limite))
+                else:
+                    hab_id, titulo, fecha_limite = habito[:3]
+                    fecha_obj = datetime.strptime(fecha_limite, "%d/%m/%Y")
+                    if fecha_obj.date() < ahora.date():
+                        vencidos.append((hab_id, titulo, fecha_limite))
             except:
                 pass
         
@@ -222,7 +344,7 @@ class DatabaseManager:
         if nivel > 1:
             nivel -= 1
             exp_necesaria = min(nivel * 3, 30)
-            exp_actual = 0  # Resetear experiencia al bajar de nivel
+            exp_actual = 0
             
             conn = sqlite3.connect(self.user_db_path)
             cursor = conn.cursor()
@@ -233,6 +355,64 @@ class DatabaseManager:
             
             return True, nivel
         return False, nivel
+
+
+# Clase: Validador de Fecha y Hora
+class ValidadorFechaHora:
+    """Clase para validar y normalizar fechas y horas"""
+    
+    @staticmethod
+    def normalizar_fecha(fecha_texto):
+        """Convierte diferentes formatos de fecha a dd/mm/yyyy"""
+        fecha_texto = fecha_texto.strip()
+        
+        if re.match(r'^\d{1,2}[/-]\d{1,2}[/-]\d{4}$', fecha_texto):
+            fecha_texto = fecha_texto.replace('-', '/')
+            partes = fecha_texto.split('/')
+            return f"{int(partes[0]):02d}/{int(partes[1]):02d}/{partes[2]}"
+        
+        elif re.match(r'^\d{4}[/-]\d{1,2}[/-]\d{1,2}$', fecha_texto):
+            fecha_texto = fecha_texto.replace('-', '/')
+            partes = fecha_texto.split('/')
+            return f"{int(partes[2]):02d}/{int(partes[1]):02d}/{partes[0]}"
+        
+        elif re.match(r'^\d{8}$', fecha_texto):
+            return f"{fecha_texto[:2]}/{fecha_texto[2:4]}/{fecha_texto[4:]}"
+        
+        return fecha_texto
+    
+    @staticmethod
+    def normalizar_hora(hora_texto):
+        """Convierte diferentes formatos de hora a HH:MM"""
+        hora_texto = hora_texto.strip()
+        
+        if re.match(r'^\d{1,2}:\d{2}$', hora_texto):
+            partes = hora_texto.split(':')
+            return f"{int(partes[0]):02d}:{partes[1]}"
+        
+        elif re.match(r'^\d{4}$', hora_texto):
+            return f"{hora_texto[:2]}:{hora_texto[2:]}"
+        
+        elif re.match(r'^\d{1,2}:\d{1}$', hora_texto):
+            partes = hora_texto.split(':')
+            return f"{int(partes[0]):02d}:{int(partes[1]):02d}"
+        
+        return hora_texto
+    
+    @staticmethod
+    def validar_hora(hora_texto):
+        """Valida que la hora sea correcta (0-23:0-59)"""
+        try:
+            partes = hora_texto.split(':')
+            if len(partes) != 2:
+                return False
+            
+            hora = int(partes[0])
+            minuto = int(partes[1])
+            
+            return 0 <= hora <= 23 and 0 <= minuto <= 59
+        except:
+            return False
 
 
 # Clase principal de la app
@@ -250,28 +430,19 @@ class HabitApp:
 
         self.img_path = os.path.join(os.path.dirname(__file__), "Imagenes")
         self.db = DatabaseManager()
+        self.validador = ValidadorFechaHora()
         self.usuario_actual = None
-        self.mostrar_mensaje_nivel = None  # Para guardar mensaje de nivel reducido
+        self.mostrar_mensaje_nivel = None
+        self.verificar_habitos_al_cargar = False  # Flag para verificar después
 
-        self.pantalla_inicio()
-
-    def normalizar_fecha(self, fecha_texto):
-        fecha_texto = fecha_texto.strip()
-        
-        if re.match(r'^\d{1,2}[/-]\d{1,2}[/-]\d{4}$', fecha_texto):
-            fecha_texto = fecha_texto.replace('-', '/')
-            partes = fecha_texto.split('/')
-            return f"{int(partes[0]):02d}/{int(partes[1]):02d}/{partes[2]}"
-        
-        elif re.match(r'^\d{4}[/-]\d{1,2}[/-]\d{1,2}$', fecha_texto):
-            fecha_texto = fecha_texto.replace('-', '/')
-            partes = fecha_texto.split('/')
-            return f"{int(partes[2]):02d}/{int(partes[1]):02d}/{partes[0]}"
-        
-        elif re.match(r'^\d{8}$', fecha_texto):
-            return f"{fecha_texto[:2]}/{fecha_texto[2:4]}/{fecha_texto[4:]}"
-        
-        return fecha_texto
+        # Verificar si hay sesión guardada
+        sesion_guardada = self.db.cargar_sesion()
+        if sesion_guardada:
+            self.usuario_actual = sesion_guardada
+            self.verificar_habitos_al_cargar = True  # Activar flag
+            self.cargar_pantalla_principal_sin_verificacion()  # Cargar sin verificar
+        else:
+            self.pantalla_inicio()
 
     def mostrar_dialogo_subida_nivel(self, nivel_nuevo):
         "Muestra un diálogo cuando el usuario sube de nivel"
@@ -335,8 +506,7 @@ class HabitApp:
             ft.Divider(height=10, color="grey400"),
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10)
         
-        # Mostrar lista de hábitos vencidos
-        for hab_id, titulo, fecha in habitos_vencidos[:3]:  # Mostrar máximo 3
+        for hab_id, titulo, fecha in habitos_vencidos[:3]:
             dialogo_contenido.controls.append(
                 ft.Text(f"• {titulo} (vencido: {fecha})", size=11, color="black")
             )
@@ -348,7 +518,7 @@ class HabitApp:
 
         dialogo = ft.AlertDialog(
             modal=True,
-            title=ft.Text(" Atención", size=20, weight="bold", color="red"),
+            title=ft.Text("Atención", size=20, weight="bold", color="red"),
             content=ft.Container(
                 content=dialogo_contenido,
                 padding=10,
@@ -374,27 +544,21 @@ class HabitApp:
 
     def eliminar_y_penalizar_habitos(self, dialogo, habitos_vencidos):
         "Función separada para manejar la eliminación y penalización"
-        # Eliminar hábitos vencidos
         for hab_id, _, _ in habitos_vencidos:
             self.db.eliminar_habito(hab_id)
         
-        # Reducir nivel
         bajo_nivel, nivel_actual = self.db.reducir_nivel(self.usuario_actual)
         
-        # Cerrar el diálogo
         self.page.close(dialogo)
         
-        # Guardar si bajó de nivel para mostrarlo después
         self.mostrar_mensaje_nivel = (bajo_nivel, nivel_actual) if bajo_nivel else None
         
-        # Recargar la pantalla 5 completamente
         self.cargar_pantalla_principal_sin_verificacion()
 
     def mostrar_dialogo_nivel_reducido(self, nivel_actual):
-        "Muestra diálogo informando que el nivel fue reducido"
+        "Muestra diálogo informando que el nivel fue reducido - CON IMAGEN8"
         def cerrar_y_actualizar(e):
             self.page.close(dialogo)
-            # Actualizar la pantalla para reflejar los cambios
             self.page.update()
         
         dialogo = ft.AlertDialog(
@@ -405,6 +569,8 @@ class HabitApp:
             ], alignment=ft.MainAxisAlignment.CENTER),
             content=ft.Container(
                 content=ft.Column([
+                    # IMAGEN8 AGREGADA AQUÍ
+                    ft.Image(src=os.path.join(self.img_path, "Imagen8.png"), width=120, height=120),
                     ft.Text(
                         f"Tu nivel ha bajado a Nivel {nivel_actual}",
                         size=16,
@@ -534,11 +700,19 @@ class HabitApp:
         self.page.clean()
         self.page.vertical_alignment = ft.MainAxisAlignment.START
         self.page.add(contenido)
+        self.page.update()  # Asegurar que la página se actualice
+        
+        # Verificar hábitos vencidos DESPUÉS de que la página esté lista
+        if self.verificar_habitos_al_cargar:
+            self.verificar_habitos_al_cargar = False
+            habitos_vencidos = self.db.obtener_habitos_vencidos(self.usuario_actual)
+            if habitos_vencidos:
+                self.mostrar_dialogo_reduccion_nivel(habitos_vencidos)
         
         # Mostrar mensaje de nivel reducido si existe
         if self.mostrar_mensaje_nivel:
             bajo_nivel, nivel_actual = self.mostrar_mensaje_nivel
-            self.mostrar_mensaje_nivel = None  # Limpiar después de mostrar
+            self.mostrar_mensaje_nivel = None
             if bajo_nivel:
                 self.mostrar_dialogo_nivel_reducido(nivel_actual)
 
@@ -660,6 +834,7 @@ class HabitApp:
         def login_click(e):
             if self.db.validar_usuario(usuarioid.value, contrasena.value):
                 self.usuario_actual = usuarioid.value
+                self.db.guardar_sesion(usuarioid.value)  # GUARDAR SESIÓN
                 self.mostrar_pantalla_principal()
             else:
                 mensaje.value = "Usuario o contraseña incorrectos."
@@ -687,7 +862,6 @@ class HabitApp:
         self.page.add(contenido)
 
     def mostrar_pantalla_principal(self):
-        # Verificar hábitos vencidos al entrar
         self.verificar_habitos_vencidos()
         
         nombre_usuario = self.db.obtener_usuario(self.usuario_actual)
@@ -791,14 +965,20 @@ class HabitApp:
                 ft.Text("No tienes hábitos agregados aún", size=12, color="black54", italic=True)
             )
         else:
-            for habito_id, titulo, fecha_limite, prioridad, completado in habitos:
+            for habito in habitos:
+                if len(habito) >= 6:
+                    habito_id, titulo, fecha_limite, hora_limite, prioridad, completado = habito
+                else:
+                    habito_id, titulo, fecha_limite, prioridad, completado = habito
+                    hora_limite = None
+                
                 self.lista_habitos.controls.append(
-                    self.crear_tarjeta_habito(habito_id, titulo, fecha_limite, prioridad, bool(completado))
+                    self.crear_tarjeta_habito(habito_id, titulo, fecha_limite, hora_limite, prioridad, bool(completado))
                 )
         
         self.page.update()
 
-    def crear_tarjeta_habito(self, habito_id, titulo, fecha_limite, prioridad, completado):
+    def crear_tarjeta_habito(self, habito_id, titulo, fecha_limite, hora_limite, prioridad, completado):
         checkbox = ft.Checkbox(
             value=completado,
             on_change=lambda e: self.toggle_habito(habito_id, e.control.value)
@@ -818,17 +998,30 @@ class HabitApp:
         
         color_fondo = ft.Colors.GREY_300 if completado else colores_prioridad.get(prioridad, ft.Colors.GREY_100)
         
+        fecha_hora_texto = f"{fecha_limite}"
+        if hora_limite:
+            fecha_hora_texto += f" a las {hora_limite}"
+        
+        # BOTÓN DE EDICIÓN AGREGADO
+        btn_editar = ft.IconButton(
+            icon=ft.Icons.EDIT,
+            icon_color="blue",
+            icon_size=20,
+            tooltip="Editar hábito",
+            on_click=lambda e: self.mostrar_dialogo_editar_habito(habito_id)
+        )
+        
         return ft.Container(
             content=ft.Row([
                 checkbox,
                 ft.Column([
                     ft.Text(titulo, size=14, weight="bold", color="black"),
                     ft.Row([
-                        ft.Text(f"Fecha: {fecha_limite}", size=11, color="black54"),
-                        ft.Text("|", size=11, color="black54"),
-                        ft.Text(f"Prioridad: {etiquetas_prioridad.get(prioridad, '🟡 Media')}", size=11, color="black54"),
+                        ft.Text(f"Límite: {fecha_hora_texto}", size=11, color="black54"),
                     ], spacing=5),
+                    ft.Text(f"Prioridad: {etiquetas_prioridad.get(prioridad, '🟡 Media')}", size=11, color="black54"),
                 ], spacing=2, expand=True),
+                btn_editar,  # BOTÓN AGREGADO AQUÍ
             ]),
             bgcolor=color_fondo,
             border_radius=10,
@@ -854,14 +1047,26 @@ class HabitApp:
             bgcolor=ft.Colors.WHITE,
             border_color="black54"
         )
+        
         fecha_field = ft.TextField(
-            label="Fecha límite (ej: 25/12/2024, 2024-12-25, 25122024)", 
+            label="Fecha límite (ej: 25/12/2024, 2024-12-25)", 
             width=300, 
             color="black",
             bgcolor=ft.Colors.WHITE,
             border_color="black54",
-            helper_text="Formatos: dd/mm/yyyy, yyyy-mm-dd, dd-mm-yyyy, ddmmyyyy",
+            helper_text="Formatos: dd/mm/yyyy, yyyy-mm-dd, ddmmyyyy",
             helper_style=ft.TextStyle(size=10, color="black54")
+        )
+        
+        hora_field = ft.TextField(
+            label="Hora límite (ej: 14:30, 1430, 9:00)", 
+            width=300, 
+            color="black",
+            bgcolor=ft.Colors.WHITE,
+            border_color="black54",
+            helper_text="Formatos: HH:MM, HHMM (formato 24h)",
+            helper_style=ft.TextStyle(size=10, color="black54"),
+            value="23:59"
         )
         
         prioridad_dropdown = ft.Dropdown(
@@ -881,14 +1086,28 @@ class HabitApp:
         mensaje = ft.Text("", color="red", size=12)
 
         def agregar_habito(e):
-            if not titulo_field.value or not fecha_field.value:
+            if not titulo_field.value or not fecha_field.value or not hora_field.value:
                 mensaje.value = "Por favor completa todos los campos"
                 dialogo.update()
                 return
             
-            fecha_normalizada = self.normalizar_fecha(fecha_field.value)
+            hora_normalizada = self.validador.normalizar_hora(hora_field.value)
+            if not self.validador.validar_hora(hora_normalizada):
+                mensaje.value = "Hora inválida. Usa formato HH:MM (0-23:0-59)"
+                dialogo.update()
+                return
+            
+            fecha_normalizada = self.validador.normalizar_fecha(fecha_field.value)
             prioridad = int(prioridad_dropdown.value)
-            self.db.agregar_habito(self.usuario_actual, titulo_field.value, fecha_normalizada, prioridad)
+            
+            self.db.agregar_habito(
+                self.usuario_actual, 
+                titulo_field.value, 
+                fecha_normalizada, 
+                hora_normalizada,
+                prioridad
+            )
+            
             self.page.close(dialogo)
             self.actualizar_lista_habitos()
 
@@ -897,12 +1116,118 @@ class HabitApp:
             content=ft.Column([
                 titulo_field,
                 fecha_field,
+                hora_field,
                 prioridad_dropdown,
                 mensaje,
-            ], tight=True, height=280),
+            ], tight=True, height=380),
             actions=[
                 ft.TextButton("Cancelar", on_click=lambda e: self.page.close(dialogo), style=ft.ButtonStyle(color="black")),
                 ft.ElevatedButton("Agregar", bgcolor="black", color="white", on_click=agregar_habito),
+            ],
+            bgcolor=ft.Colors.WHITE,
+        )
+
+        self.page.open(dialogo)
+
+    def mostrar_dialogo_editar_habito(self, habito_id):
+        """NUEVA FUNCIÓN: Diálogo para editar un hábito existente"""
+        habito_datos = self.db.obtener_habito_por_id(habito_id)
+        
+        if not habito_datos:
+            return
+        
+        # Extraer datos del hábito
+        if len(habito_datos) >= 5:
+            _, titulo_actual, fecha_actual, hora_actual, prioridad_actual = habito_datos
+        else:
+            _, titulo_actual, fecha_actual, prioridad_actual = habito_datos
+            hora_actual = "23:59"
+        
+        titulo_field = ft.TextField(
+            label="Título del hábito", 
+            width=300, 
+            color="black",
+            bgcolor=ft.Colors.WHITE,
+            border_color="black54",
+            value=titulo_actual
+        )
+        
+        fecha_field = ft.TextField(
+            label="Fecha límite", 
+            width=300, 
+            color="black",
+            bgcolor=ft.Colors.WHITE,
+            border_color="black54",
+            helper_text="Formatos: dd/mm/yyyy, yyyy-mm-dd, ddmmyyyy",
+            helper_style=ft.TextStyle(size=10, color="black54"),
+            value=fecha_actual
+        )
+        
+        hora_field = ft.TextField(
+            label="Hora límite", 
+            width=300, 
+            color="black",
+            bgcolor=ft.Colors.WHITE,
+            border_color="black54",
+            helper_text="Formatos: HH:MM, HHMM (formato 24h)",
+            helper_style=ft.TextStyle(size=10, color="black54"),
+            value=hora_actual if hora_actual else "23:59"
+        )
+        
+        prioridad_dropdown = ft.Dropdown(
+            label="Prioridad del hábito",
+            width=300,
+            color="black",
+            bgcolor=ft.Colors.WHITE,
+            border_color="black54",
+            options=[
+                ft.dropdown.Option("1", "1 - Alta prioridad (Más importante)"),
+                ft.dropdown.Option("2", "2 - Media prioridad"),
+                ft.dropdown.Option("3", "3 - Baja prioridad (Menos importante)"),
+            ],
+            value=str(prioridad_actual),
+        )
+        
+        mensaje = ft.Text("", color="red", size=12)
+
+        def guardar_edicion(e):
+            if not titulo_field.value or not fecha_field.value or not hora_field.value:
+                mensaje.value = "Por favor completa todos los campos"
+                dialogo.update()
+                return
+            
+            hora_normalizada = self.validador.normalizar_hora(hora_field.value)
+            if not self.validador.validar_hora(hora_normalizada):
+                mensaje.value = "Hora inválida. Usa formato HH:MM (0-23:0-59)"
+                dialogo.update()
+                return
+            
+            fecha_normalizada = self.validador.normalizar_fecha(fecha_field.value)
+            prioridad = int(prioridad_dropdown.value)
+            
+            self.db.editar_habito(
+                habito_id,
+                titulo_field.value, 
+                fecha_normalizada, 
+                hora_normalizada,
+                prioridad
+            )
+            
+            self.page.close(dialogo)
+            self.actualizar_lista_habitos()
+
+        dialogo = ft.AlertDialog(
+            title=ft.Text("Editar Hábito", color="black"),
+            content=ft.Column([
+                titulo_field,
+                fecha_field,
+                hora_field,
+                prioridad_dropdown,
+                mensaje,
+            ], tight=True, height=380),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: self.page.close(dialogo), style=ft.ButtonStyle(color="black")),
+                ft.ElevatedButton("Guardar Cambios", bgcolor="blue", color="white", on_click=guardar_edicion),
             ],
             bgcolor=ft.Colors.WHITE,
         )
@@ -1122,6 +1447,8 @@ class HabitApp:
         self.page.add(contenido)
 
     def cerrar_sesion(self):
+        """ACTUALIZADO: Cerrar sesión y eliminar archivo de sesión"""
+        self.db.cerrar_sesion()  # Eliminar sesión guardada
         self.usuario_actual = None
         self.pantalla_inicio()
 
@@ -1134,9 +1461,15 @@ class HabitApp:
             self.lista_notificaciones.controls.append(
                 ft.Text("Pendientes", size=16, weight="bold", color="black")
             )
-            for habito_id, titulo, fecha_limite, prioridad, completado in habitos_pendientes:
+            for habito in habitos_pendientes:
+                if len(habito) >= 6:
+                    habito_id, titulo, fecha_limite, hora_limite, prioridad, completado = habito
+                else:
+                    habito_id, titulo, fecha_limite, prioridad, completado = habito
+                    hora_limite = None
+                
                 self.lista_notificaciones.controls.append(
-                    self.crear_tarjeta_notificacion(habito_id, titulo, fecha_limite, prioridad, False)
+                    self.crear_tarjeta_notificacion(habito_id, titulo, fecha_limite, hora_limite, prioridad, False)
                 )
         else:
             self.lista_notificaciones.controls.append(
@@ -1164,37 +1497,72 @@ class HabitApp:
                     ),
                 ])
             )
-            for habito_id, titulo, fecha_limite, prioridad, completado in habitos_completados:
+            for habito in habitos_completados:
+                if len(habito) >= 6:
+                    habito_id, titulo, fecha_limite, hora_limite, prioridad, completado = habito
+                else:
+                    habito_id, titulo, fecha_limite, prioridad, completado = habito
+                    hora_limite = None
+                
                 self.lista_notificaciones.controls.append(
-                    self.crear_tarjeta_notificacion(habito_id, titulo, fecha_limite, prioridad, True)
+                    self.crear_tarjeta_notificacion(habito_id, titulo, fecha_limite, hora_limite, prioridad, True)
                 )
         
         self.page.update()
 
-    def crear_tarjeta_notificacion(self, habito_id, titulo, fecha_limite, prioridad, es_completado):
+    def crear_tarjeta_notificacion(self, habito_id, titulo, fecha_limite, hora_limite, prioridad, es_completado):
         try:
-            fecha_obj = datetime.strptime(fecha_limite, "%d/%m/%Y")
-            hoy = datetime.now()
-            dias_restantes = (fecha_obj - hoy).days
-            
-            if dias_restantes < 0:
-                texto_tiempo = f"{abs(dias_restantes)} días"
-                estado_texto = "Estado: Vencido"
-                estado_color = "red"
-            elif dias_restantes == 0:
-                texto_tiempo = "Hoy"
-                estado_texto = "Estado: Vence hoy"
-                estado_color = "orange"
-            elif dias_restantes == 1:
-                texto_tiempo = "1 día"
-                estado_texto = "Estado: Pendiente"
-                estado_color = "black54"
+            if hora_limite:
+                fecha_hora_str = f"{fecha_limite} {hora_limite}"
+                fecha_hora_obj = datetime.strptime(fecha_hora_str, "%d/%m/%Y %H:%M")
+                ahora = datetime.now()
+                diferencia = fecha_hora_obj - ahora
+                
+                if diferencia.total_seconds() < 0:
+                    horas_pasadas = int(abs(diferencia.total_seconds()) / 3600)
+                    if horas_pasadas < 24:
+                        texto_tiempo = f"{horas_pasadas}h"
+                    else:
+                        texto_tiempo = f"{int(horas_pasadas/24)} días"
+                    estado_texto = "Estado: Vencido"
+                    estado_color = "red"
+                elif diferencia.total_seconds() < 3600:
+                    texto_tiempo = f"{int(diferencia.total_seconds()/60)}min"
+                    estado_texto = "Estado: ¡Urgente!"
+                    estado_color = "red"
+                elif diferencia.days == 0:
+                    texto_tiempo = f"{int(diferencia.total_seconds()/3600)}h"
+                    estado_texto = "Estado: Hoy"
+                    estado_color = "orange"
+                else:
+                    texto_tiempo = f"{diferencia.days} días"
+                    estado_texto = "Estado: Pendiente"
+                    estado_color = "black54"
             else:
-                texto_tiempo = f"{dias_restantes} días"
-                estado_texto = "Estado: Pendiente"
-                estado_color = "black54"
+                fecha_obj = datetime.strptime(fecha_limite, "%d/%m/%Y")
+                hoy = datetime.now()
+                dias_restantes = (fecha_obj - hoy).days
+                
+                if dias_restantes < 0:
+                    texto_tiempo = f"{abs(dias_restantes)} días"
+                    estado_texto = "Estado: Vencido"
+                    estado_color = "red"
+                elif dias_restantes == 0:
+                    texto_tiempo = "Hoy"
+                    estado_texto = "Estado: Vence hoy"
+                    estado_color = "orange"
+                elif dias_restantes == 1:
+                    texto_tiempo = "1 día"
+                    estado_texto = "Estado: Pendiente"
+                    estado_color = "black54"
+                else:
+                    texto_tiempo = f"{dias_restantes} días"
+                    estado_texto = "Estado: Pendiente"
+                    estado_color = "black54"
         except:
-            texto_tiempo = fecha_limite
+            texto_tiempo = f"{fecha_limite}"
+            if hora_limite:
+                texto_tiempo += f" {hora_limite}"
             estado_texto = "Estado: Pendiente"
             estado_color = "black54"
 
@@ -1242,7 +1610,8 @@ class HabitApp:
 
     def borrar_completados(self):
         habitos_completados = self.db.obtener_habitos_completados(self.usuario_actual)
-        for habito_id, _, _, _, _ in habitos_completados:
+        for habito in habitos_completados:
+            habito_id = habito[0]
             self.db.eliminar_habito(habito_id)
         self.actualizar_lista_notificaciones()
 
