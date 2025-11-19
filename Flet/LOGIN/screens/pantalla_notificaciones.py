@@ -20,7 +20,7 @@ class PantallaNotificaciones:
         """Muestra la pantalla de notificaciones"""
         header = ft.Container(
             content=ft.Row([
-                ft.Image(src=self.gestor_img.get("Imagen7"), width=40, height=40),
+                self.gestor_img.crear_imagen("Imagen7", width=40, height=40),
                 ft.Text("Notificaciones", size=18, weight="bold", color="black"),
             ], alignment=ft.MainAxisAlignment.START),
             padding=15,

@@ -32,7 +32,7 @@ class TarjetasHabitos:
         
         fecha_hora_texto = f"{fecha_limite}"
         if hora_limite:
-            fecha_hora_texto = f"Vence: {fecha_limite} | 🔔 {hora_limite}"
+            fecha_hora_texto = f"Vence: {fecha_limite} |  {hora_limite}"
         
         btn_editar = ft.IconButton(
             icon=ft.Icons.EDIT,
@@ -143,7 +143,7 @@ class TarjetasHabitos:
             )
 
         fila_contenido = ft.Row([
-            ft.Image(src=self.gestor_img.get("Imagen7"), width=30, height=30),
+            self.gestor_img.crear_imagen("Imagen7", width=30, height=30),
             ft.Column([
                 ft.Text(f"{titulo}", size=13, weight="bold", color="black"),
                 ft.Text(f" {texto_tiempo}", size=11, color="black54"),

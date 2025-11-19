@@ -21,7 +21,7 @@ class PantallaExito:
                 ),
                 ft.Text("Excelente", size=22, weight=ft.FontWeight.BOLD, color="black"),
                 ft.Text("Ya estás conectado conmigo, y juntos construiremos algo grande", color="black"),
-                ft.Image(src=self.gestor_img.get("Imagen2"), width=120, height=120),
+                self.gestor_img.crear_imagen("Imagen2", width=120, height=120),
                 ft.ElevatedButton("¡Iniciar!", bgcolor="black", color="white", on_click=lambda e: self.callback_iniciar()),
             ],
             alignment=ft.MainAxisAlignment.CENTER,

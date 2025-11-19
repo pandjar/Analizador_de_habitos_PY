@@ -45,7 +45,7 @@ class PantallaRegistro:
                 ),
                 ft.Text("Hola Soy Habit", size=20, weight=ft.FontWeight.BOLD, color="black"),
                 ft.Text("¿Listo para programar tus hábitos y optimizar tu día?", color="black"),
-                ft.Image(src=self.gestor_img.get("Imagen1"), width=100, height=100),
+                self.gestor_img.crear_imagen("Imagen1", width=100, height=100),
                 nombre,
                 apellido,
                 usuarioid,

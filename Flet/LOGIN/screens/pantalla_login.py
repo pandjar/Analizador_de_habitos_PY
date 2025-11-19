@@ -33,7 +33,7 @@ class PantallaLogin:
                                   style=ft.ButtonStyle(color="black"))],
                     alignment=ft.MainAxisAlignment.START
                 ),
-                ft.Image(src=self.gestor_img.get("Imagen4"), width=150, height=150),
+                self.gestor_img.crear_imagen("Imagen4", width=150, height=150),
                 ft.Text("INICIO DE SESIÓN", color="black", size=20, weight="bold"),
                 usuarioid,
                 contrasena,

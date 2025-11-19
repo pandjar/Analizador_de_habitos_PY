@@ -25,7 +25,7 @@ class PantallaPrincipal:
         header = ft.Container(
             content=ft.Column([
                 ft.Row([
-                    ft.Image(src=self.gestor_img.get("Imagen3"), width=40, height=40),
+                    self.gestor_img.crear_imagen("Imagen3", width=40, height=40),
                     ft.Column([
                         ft.Text(f"Bienvenido a HabitTracker", size=14, weight="bold", color="black"),
                         ft.Text(nombre_usuario, size=12, color="black54"),

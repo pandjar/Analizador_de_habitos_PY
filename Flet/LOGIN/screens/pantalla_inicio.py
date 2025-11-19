@@ -29,7 +29,7 @@ class PantallaInicio:
 
         contenido = ft.Column(
             [
-                ft.Image(src=self.gestor_img.get("Imagen3"), width=150, height=150),
+                self.gestor_img.crear_imagen("Imagen3", width=150, height=150),
                 ft.Text("INICIO DE SESIÓN", size=20, weight=ft.FontWeight.BOLD, color="black"),
                 correo,
                 btn_continuar,

@@ -1,12 +1,12 @@
 {
   "imagenes": {
-    "Imagen1": "/images/Imagen1.png",
-    "Imagen2": "/images/Imagen2.png",
-    "Imagen3": "/images/Imagen3.png",
-    "Imagen4": "/images/Imagen4.png",
-    "Imagen7": "/images/Imagen7.png",
-    "Imagen8": "/images/Imagen8.png"
+    "Imagen1": "assets/images/Imagen1.png",
+    "Imagen2": "assets/images/Imagen2.png",
+    "Imagen3": "assets/images/Imagen3.png",
+    "Imagen4": "assets/images/Imagen4.png",
+    "Imagen7": "assets/images/Imagen7.png",
+    "Imagen8": "assets/images/Imagen8.png"
   },
   "descripcion": "Configuración de rutas de imágenes para HabitTracker",
-  "version": "1.0"
+  "version": "1.2"
 }

@@ -18,7 +18,7 @@ class Dialogos:
             ], alignment=ft.MainAxisAlignment.CENTER),
             content=ft.Container(
                 content=ft.Column([
-                    ft.Image(src=self.gestor_img.get("Imagen2"), width=120, height=120),
+                    self.gestor_img.crear_imagen("Imagen2", width=120, height=120),
                     ft.Text(
                         f"¡Has subido al Nivel {nivel_nuevo}!",
                         size=18,
@@ -120,7 +120,7 @@ class Dialogos:
             ], alignment=ft.MainAxisAlignment.CENTER),
             content=ft.Container(
                 content=ft.Column([
-                    ft.Image(src=self.gestor_img.get("Imagen8"), width=120, height=120),
+                    self.gestor_img.crear_imagen("Imagen8", width=120, height=120),
                     ft.Text(
                         f"Tu nivel ha bajado a Nivel {nivel_actual}",
                         size=16,
@@ -157,16 +157,20 @@ class Dialogos:
             label="Título del hábito", 
             width=300, 
             color="black",
+            label_style=ft.TextStyle(color="black"),
             bgcolor=ft.Colors.WHITE,
-            border_color="black54"
+            border_color="black54",
+            focused_border_color="black"
         )
         
         fecha_field = ft.TextField(
             label="Fecha límite (ej: 25/12/2024, 2024-12-25)", 
             width=300, 
             color="black",
+            label_style=ft.TextStyle(color="black"),
             bgcolor=ft.Colors.WHITE,
             border_color="black54",
+            focused_border_color="black",
             helper_text="Formatos: dd/mm/yyyy, yyyy-mm-dd, ddmmyyyy",
             helper_style=ft.TextStyle(size=10, color="black54")
         )
@@ -175,8 +179,10 @@ class Dialogos:
             label="Hora de recordatorio (ej: 14:30, 1430, 9:00)", 
             width=300, 
             color="black",
+            label_style=ft.TextStyle(color="black"),
             bgcolor=ft.Colors.WHITE,
             border_color="black54",
+            focused_border_color="black",
             helper_text="Hora en que deseas recibir un recordatorio (formato 24h)",
             helper_style=ft.TextStyle(size=10, color="black54"),
             value="09:00"
@@ -186,8 +192,10 @@ class Dialogos:
             label="Prioridad del hábito",
             width=300,
             color="black",
+            label_style=ft.TextStyle(color="black"),
             bgcolor=ft.Colors.WHITE,
             border_color="black54",
+            focused_border_color="black",
             options=[
                 ft.dropdown.Option("1", "1 - Alta prioridad (Más importante)"),
                 ft.dropdown.Option("2", "2 - Media prioridad"),
@@ -217,7 +225,7 @@ class Dialogos:
             callback_agregar(titulo_field.value, fecha_normalizada, hora_normalizada, prioridad)
 
         dialogo = ft.AlertDialog(
-            title=ft.Text("Nuevo Hábito", color="black"),
+            title=ft.Text("Nuevo Hábito", color="black", weight="bold"),
             content=ft.Column([
                 titulo_field,
                 fecha_field,
@@ -249,8 +257,10 @@ class Dialogos:
             label="Título del hábito", 
             width=300, 
             color="black",
+            label_style=ft.TextStyle(color="black"),
             bgcolor=ft.Colors.WHITE,
             border_color="black54",
+            focused_border_color="black",
             value=titulo_actual
         )
         
@@ -258,8 +268,10 @@ class Dialogos:
             label="Fecha límite", 
             width=300, 
             color="black",
+            label_style=ft.TextStyle(color="black"),
             bgcolor=ft.Colors.WHITE,
             border_color="black54",
+            focused_border_color="black",
             helper_text="Formatos: dd/mm/yyyy, yyyy-mm-dd, ddmmyyyy",
             helper_style=ft.TextStyle(size=10, color="black54"),
             value=fecha_actual
@@ -269,8 +281,10 @@ class Dialogos:
             label="Hora de recordatorio", 
             width=300, 
             color="black",
+            label_style=ft.TextStyle(color="black"),
             bgcolor=ft.Colors.WHITE,
             border_color="black54",
+            focused_border_color="black",
             helper_text="Hora en que deseas recibir un recordatorio (formato 24h)",
             helper_style=ft.TextStyle(size=10, color="black54"),
             value=hora_actual if hora_actual else "09:00"
@@ -280,8 +294,10 @@ class Dialogos:
             label="Prioridad del hábito",
             width=300,
             color="black",
+            label_style=ft.TextStyle(color="black"),
             bgcolor=ft.Colors.WHITE,
             border_color="black54",
+            focused_border_color="black",
             options=[
                 ft.dropdown.Option("1", "1 - Alta prioridad (Más importante)"),
                 ft.dropdown.Option("2", "2 - Media prioridad"),
@@ -311,7 +327,7 @@ class Dialogos:
             callback_guardar(habito_id, titulo_field.value, fecha_normalizada, hora_normalizada, prioridad)
 
         dialogo = ft.AlertDialog(
-            title=ft.Text("Editar Hábito", color="black"),
+            title=ft.Text("Editar Hábito", color="black", weight="bold"),
             content=ft.Column([
                 titulo_field,
                 fecha_field,
