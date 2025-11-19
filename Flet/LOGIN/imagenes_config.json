@@ -1,0 +1,12 @@
+{
+  "imagenes": {
+    "Imagen1": "/images/Imagen1.png",
+    "Imagen2": "/images/Imagen2.png",
+    "Imagen3": "/images/Imagen3.png",
+    "Imagen4": "/images/Imagen4.png",
+    "Imagen7": "/images/Imagen7.png",
+    "Imagen8": "/images/Imagen8.png"
+  },
+  "descripcion": "Configuración de rutas de imágenes para HabitTracker",
+  "version": "1.0"
+}
