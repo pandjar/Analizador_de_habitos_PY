@@ -32,7 +32,7 @@ class PantallaPrincipal:
                     ], spacing=0),
                 ], alignment=ft.MainAxisAlignment.START),
                 ft.Container(
-                    content=ft.Image(src=self.gestor_img.get("Imagen1"), width=200, height=150, fit=ft.ImageFit.CONTAIN),
+                    content=self.gestor_img.crear_imagen("Imagen1", width=200, height=150, fit=ft.ImageFit.CONTAIN),
                     alignment=ft.alignment.center,
                 ),
             ]),
