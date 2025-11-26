@@ -60,7 +60,7 @@ class HabitApp:
         else:
             self.ir_a_pantalla_inicio()
     
-    # ========== NAVEGACIÓN ENTRE PANTALLAS ==========
+    #NAVEGACIÓN ENTRE PANTALLAS
     
     def ir_a_pantalla_inicio(self):
         """Navega a la pantalla de inicio"""

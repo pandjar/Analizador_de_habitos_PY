@@ -64,7 +64,7 @@ class DatabaseManager:
         conn.commit()
         conn.close()
 
-    # ========== MÉTODOS DE SESIÓN ==========
+    # MÉTODOS DE SESIÓN
     
     def guardar_sesion(self, usuarioid):
         """Guarda la sesión del usuario"""
@@ -93,7 +93,7 @@ class DatabaseManager:
         except:
             pass
 
-    # ========== MÉTODOS DE USUARIOS ==========
+    # MÉTODOS DE USUARIOS
     
     def registrar_usuario(self, nombre, apellido, usuarioid, correo, contrasena):
         """Registra un nuevo usuario"""
@@ -129,7 +129,7 @@ class DatabaseManager:
         conn.close()
         return user[0] if user else "Usuario"
 
-    # ========== MÉTODOS DE HÁBITOS ==========
+    # MÉTODOS DE HÁBITOS
     
     def obtener_habitos(self, usuarioid):
         """Obtiene todos los hábitos del usuario"""
@@ -312,7 +312,7 @@ class DatabaseManager:
         
         return vencidos
 
-    # ========== MÉTODOS DE EXPERIENCIA ==========
+    # MÉTODOS DE EXPERIENCIA
     
     def obtener_experiencia(self, usuarioid):
         """Obtiene la experiencia del usuario"""
